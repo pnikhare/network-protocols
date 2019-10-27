@@ -22,39 +22,34 @@ class Packet:
 
 class PacketBucket:
     
-    def __init__(self, filename, mss):
-        self.filename = filename
+    def __init__(self, nPkts, mss):
+        self.nPkts = nPkts
         self.mss = mss
         self.mps = mss - 20 - 20 #TCP_HEADER_SZ - IP_HEADER_SZ;
         self.pkt_bucket = [];
 
+    def randomData(self, len):
+        """Generate a random string of fixed length """
+        letters = string.ascii_lowercase
+        return ''.join(random.choice(letters) for i in range(len))
+    
     def create_pkts(self):
-        
-        try:
-            fd = open(self.filename, 'rb')
-            try:
-                seq_num = 0;
-                while True:
-                    # handle exception
-                    # read data from file to generate payload
-                    payload = fd.read(self.mps)
+        count = 0
+        seq_num = 0;
+        while count < nPkts:
+            payload = self.randomData(self.mps)
+            if not payload:
+                break
             
-                    if not payload:
-                        break
+            checksum = hashlib.md5(payload.encode())
+            pkt = Packet(payload, checksum, seq_num)
+            self.pkt_bucket.append(pkt);
             
-                    checksum = hashlib.md5(payload.encode())
-                    pkt = Packet(payload, checksum, seq_num)
-                    self.pkt_bucket.append(pkt);
-            
-                    seq_num = seq_num + 1;
-            finally:
-                fd.close()
-                
-        except IOError:
-            print("Failed to open or read file in rb mode")
-            
+            seq_num = seq_num + 1
+            count = count + 1    
+                    
     def next_pkt(self, next_seq_num):
-        
+        # sent all the packets 
         if (next_seq_num > len(self.pkt_bucket) - 1):
             return None
             
@@ -64,28 +59,23 @@ class PktHandler:
     
     def __init__(self, s, filename, nPkts, mss):
         self.s = s
-        self.nPkts = nPkts
-        self.pkt_bucket = PacketBucket(filename, mss)
+        self.pkt_bucket = PacketBucket(nPkts, mss)
         
     def send_pkts(self):
-   
-	self.pkt_bucket.create_pkts()
+  
+        # Generate packets 
+	    self.pkt_bucket.create_pkts()
      
-	seq_num = 0;
-        while True: 
-            
-	    curr_pkt = self.pkt_bucket.next_pkt(seq_num)
-            
-            if curr_pkt == None:
-                break
-        
-            print("Sending pkt with seq num "+ str(curr_pkt.get_seq_num()))
-	    data_stream = str(curr_pkt.get_seq_num()) + str(curr_pkt.get_checksum()) + str(curr_pkt.get_payload())
-            self.s.sendall(str(data_stream))
-
-            seq_num = seq_num + 1
-        
-        print("Finished sending all the packets")
+	    seq_num = 0
+	    while True: 
+	        curr_pkt = self.pkt_bucket.next_pkt(seq_num)
+	        if curr_pkt == None:
+	            break
+	        
+	        print("Sending pkt with seq num "+ str(curr_pkt.get_seq_num()))
+	        data_stream = str(curr_pkt.get_seq_num()) + str(curr_pkt.get_checksum()) + str(curr_pkt.get_payload())
+	        self.s.sendall(str(data_stream))
+	        seq_num = seq_num + 1
 
 class Client:
 
@@ -94,10 +84,9 @@ class Client:
         self.port = int(port)
         self.nPkts = nPkts
         self.s = None
-	self.pkt_handler = None        
+        self.pkt_handler = None        
 
     def connect(self):
-
         # handle exception 
         self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         
@@ -135,6 +124,52 @@ def validateInputArgs(filename, port, nPkts):
             return False
     return True
 
+class InputParser:
+    
+    def __init__(self, filename, port, nPkts):
+        self.filename = filename
+        self.port = port
+        self.nPkts = nPkts
+        
+    def validateInputArgs(self):
+        
+        # validate file path
+        if not os.path.exists(self.filename):
+            print ("Mentioned file path is wrong")
+            return False
+
+        # Validate entered port number 
+        if not self.port.isdigit():
+            print ("Please enter a valid port number")
+            return False
+
+        if not self.nPkts.isdigit():
+            if self.nPkts <= 0:
+                print ("Please provide the correct value for number of packets. It should be greater than 0.")
+                return False
+        
+        return True
+
+    def parse_input(self):
+        
+        prot_name  = None
+        seqNumBits = None
+        windowSize = None
+        timeout    = None
+        segSize    = None
+        
+        with open(self.filename, 'r') as fd:
+            try:
+                prot_name  = fd.readline().strip()
+                seqNumBits = fd.readline().strip()
+                windowSize = fd.readline().strip()
+                timeout    = fd.readline().strip()
+                segSize    = fd.readline().strip()
+            except IOError:
+                print("Insufficient file content. Please correct the file content or format.")
+        
+        return prot_name, seqNumBits, windowSize, timeout, segSize
+            
 if __name__ == "__main__":
     
     if len(sys.argv) != 4:
@@ -148,12 +183,12 @@ if __name__ == "__main__":
     port_num = sys.argv[2]
     nPkts    = sys.argv[3]
     
-    #if not validateInputArgs(filename, port_num, nPkts):
-    #    sys.exit()
+    parser = InputParser(filename, port_num, nPkts)
+    if not parser.validateInputArgs():
+        sys.exit()
     
-    if nPkts is None:
-        nPkts = "ALL"
-        
+    prot_name, seqNumBits, windowSize, timeout, segSize = parser.parse_input();
+    
     client = Client(filename, port_num, nPkts)
     client.connect()
     client.send()
