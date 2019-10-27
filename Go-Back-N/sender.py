@@ -1,6 +1,8 @@
 #!/usr/bin/python
 import socket
 import sys
+import os
+import hashlib
 
 class Packet:
     
@@ -9,14 +11,14 @@ class Packet:
         self.checksum = checksum
         self.seq_num  = seq_num
     
-    def get_payload():
-        return payload
+    def get_payload(self):
+        return self.payload
 
-    def get_seq_num():
-        return seq_num
+    def get_seq_num(self):
+        return self.seq_num
         
-    def get_checksum():
-        return checksum
+    def get_checksum(self):
+        return self.checksum
 
 class PacketBucket:
     
@@ -29,20 +31,20 @@ class PacketBucket:
     def create_pkts(self):
         
         try:
-            fd = open(filename, 'rb')
+            fd = open(self.filename, 'rb')
             try:
                 seq_num = 0;
                 while True:
                     # handle exception
                     # read data from file to generate payload
-                    payload = fd.read(mps)
+                    payload = fd.read(self.mps)
             
-                    if payload is None:
+                    if not payload:
                         break
             
                     checksum = hashlib.md5(payload.encode())
                     pkt = Packet(payload, checksum, seq_num)
-                    pkt_bucket.append(pkt);
+                    self.pkt_bucket.append(pkt);
             
                     seq_num = seq_num + 1;
             finally:
@@ -53,33 +55,35 @@ class PacketBucket:
             
     def next_pkt(self, next_seq_num):
         
-        if (next_seq_num > len(pkt_bucket) - 1):
+        if (next_seq_num > len(self.pkt_bucket) - 1):
             return None
             
-        return pkt_bucket[next_seq_num]
+        return self.pkt_bucket[next_seq_num]
     
 class PktHandler:
     
-    def __init__(self, socket, filename, nPkts, mss):
-        self.socket = socket
+    def __init__(self, s, filename, nPkts, mss):
+        self.s = s
         self.nPkts = nPkts
         self.pkt_bucket = PacketBucket(filename, mss)
-        self.last_pkt = None
         
     def send_pkts(self):
-        
+   
+	self.pkt_bucket.create_pkts()
+     
+	seq_num = 0;
         while True: 
-            curr_pkt = pkt_bucket.next_pkt(last_pkt.get_seq_num() + 1)
+            
+	    curr_pkt = self.pkt_bucket.next_pkt(seq_num)
             
             if curr_pkt == None:
                 break
         
             print("Sending pkt with seq num "+ str(curr_pkt.get_seq_num()))
-        
-            # Sends data in bulk
-            socket.sendall(curr_pkt)
-        
-            last_pkt = curr_pkt
+	    data_stream = str(curr_pkt.get_seq_num()) + str(curr_pkt.get_checksum()) + str(curr_pkt.get_payload())
+            self.s.sendall(str(data_stream))
+
+            seq_num = seq_num + 1
         
         print("Finished sending all the packets")
 
@@ -89,31 +93,30 @@ class Client:
         self.filename = filename
         self.port = int(port)
         self.nPkts = nPkts
-        self.socket = None;
-        self.pkt_handler = PktHandler(socket,filename, nPkts, 1500)
-        
+        self.s = None
+	self.pkt_handler = None        
+
     def connect(self):
 
         # handle exception 
-        socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         
         # Client connects to senders socket 
-        socket.connect(('127.0.0.1', self.port))
-        
-        send()
-        
+        self.s.connect(('127.0.0.1', self.port))
+    
     def send(self):
     
-        pkt_bucket.send_pkts();
+        self.pkt_handler = PktHandler(self.s, self.filename, self.nPkts, 80)
+        self.pkt_handler.send_pkts()
         
     def close(self):
         
-        socket.close()
+        self.s.close()
 
-def validateInputArgs(filename, port, nPkts) :
+def validateInputArgs(filename, port, nPkts):
 
     # validate file path
-    if os.path.exists(filename):
+    if not os.path.exists(filename):
         print ("Mentioned file path is wrong")
         return False
 
@@ -134,19 +137,19 @@ def validateInputArgs(filename, port, nPkts) :
 
 if __name__ == "__main__":
     
-    if len(sys.argv) != 3:
+    if len(sys.argv) != 4:
         print (" Please provide all the expected input values.")
         print (" 1. File name with path")
         print (" 2. Port Number")
         print (" 3. Number of Packets")
         sys.exit()
     
-    filename = sys.argv[0]
-    port_num = sys.argv[1]
-    nPkts    = sys.argv[2]
+    filename = sys.argv[1]
+    port_num = sys.argv[2]
+    nPkts    = sys.argv[3]
     
-    if not validateInputArgs(filename, port_num, nPkts):
-        sys.exit()
+    #if not validateInputArgs(filename, port_num, nPkts):
+    #    sys.exit()
     
     if nPkts is None:
         nPkts = "ALL"
@@ -154,4 +157,4 @@ if __name__ == "__main__":
     client = Client(filename, port_num, nPkts)
     client.connect()
     client.send()
-    Client.close()
+    client.close()
