@@ -1,67 +1,157 @@
 #!/usr/bin/python
 import socket
 import sys
-import os
 
-class Server:
+class Packet:
+    
+    def __init__(self, payload, checksum, seq_num):
+        self.payload  = payload
+        self.checksum = checksum
+        self.seq_num  = seq_num
+    
+    def get_payload():
+        return payload
 
-    def __init__(self, inputfile, port, nPkts) :
+    def get_seq_num():
+        return seq_num
+        
+    def get_checksum():
+        return checksum
 
-        self.host = "127.0.0.1"
+class PacketBucket:
+    
+    def __init__(self, filename, mss):
+        self.filename = filename
+        self.mss = mss
+        self.mps = mss - 20 - 20 #TCP_HEADER_SZ - IP_HEADER_SZ;
+        self.pkt_bucket = [];
+
+    def create_pkts(self):
+        
+        try:
+            fd = open(filename, 'rb')
+            try:
+                seq_num = 0;
+                while True:
+                    # handle exception
+                    # read data from file to generate payload
+                    payload = fd.read(mps)
+            
+                    if payload is None:
+                        break
+            
+                    checksum = hashlib.md5(payload.encode())
+                    pkt = Packet(payload, checksum, seq_num)
+                    pkt_bucket.append(pkt);
+            
+                    seq_num = seq_num + 1;
+            finally:
+                fd.close()
+                
+        except IOError:
+            print("Failed to open or read file in rb mode")
+            
+    def next_pkt(self, next_seq_num):
+        
+        if (next_seq_num > len(pkt_bucket) - 1):
+            return None
+            
+        return pkt_bucket[next_seq_num]
+    
+class PktHandler:
+    
+    def __init__(self, socket, filename, nPkts, mss):
+        self.socket = socket
+        self.nPkts = nPkts
+        self.pkt_bucket = PacketBucket(filename, mss)
+        self.last_pkt = None
+        
+    def send_pkts(self):
+        
+        while True: 
+            curr_pkt = pkt_bucket.next_pkt(last_pkt.get_seq_num() + 1)
+            
+            if curr_pkt == None:
+                break
+        
+            print("Sending pkt with seq num "+ str(curr_pkt.get_seq_num()))
+        
+            # Sends data in bulk
+            socket.sendall(curr_pkt)
+        
+            last_pkt = curr_pkt
+        
+        print("Finished sending all the packets")
+
+class Client:
+
+    def __init__(self, filename, port, nPkts):
+        self.filename = filename
         self.port = int(port)
         self.nPkts = nPkts
-
-    def start(self) :
+        self.socket = None;
+        self.pkt_handler = PktHandler(socket,filename, nPkts, 1500)
         
-        # Initializing the sender process socket
+    def connect(self):
+
+        # handle exception 
         socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         
-        # Sender process socket binds to given host,port
-        socket.bind((self.host, self.port))
-
-        # Sender process socket can listen to number of connections
-        socket.listen(1)
-        print ("Server listening on Port :"+ str(self.port))
-        conn, addr = socket.accept()
+        # Client connects to senders socket 
+        socket.connect(('127.0.0.1', self.port))
         
-        # Sender process runs infinitely untill interruption
-        while True:
-            # receiving 1024 bytes of data
-            data = conn.recv(1024)
-            print (data)
-            if not data:
-                break
-            
-        conn.sendall(data)
-        conn.close()
-
-def validateArgs() :
+        send()
+        
+    def send(self):
     
-    if len(sys.argv) != 4 :
-        print (" Please provide the input: ")
-        print (" 1. Input file name")
+        pkt_bucket.send_pkts();
+        
+    def close(self):
+        
+        socket.close()
+
+def validateInputArgs(filename, port, nPkts) :
+
+    # validate file path
+    if os.path.exists(filename):
+        print ("Mentioned file path is wrong")
+        return False
+
+    # Validate entered port number 
+    if not port.isdigit():
+        print ("Please enter a valid port number")
+        return False
+
+    if nPkts is not None:
+        if nPkts.isdigit():
+            if nPkts <= 0:
+                print ("Please provide the correct value for number of packets. It should be greater than 0.")
+                return False
+        else:
+            print ("Value of expected number of packets should be integer")
+            return False
+    return True
+
+if __name__ == "__main__":
+    
+    if len(sys.argv) != 3:
+        print (" Please provide all the expected input values.")
+        print (" 1. File name with path")
         print (" 2. Port Number")
-        print (" 3. Number of Packets to send")
-        return False 
-
-    # Check whether input file exits 
-    if not os.path.isfile(sys.argv[1]) :
-        print (" File does not exist")
-        return False
+        print (" 3. Number of Packets")
+        sys.exit()
     
-    ################ FILE values validation #####
+    filename = sys.argv[0]
+    port_num = sys.argv[1]
+    nPkts    = sys.argv[2]
     
-    # validate entered port number 
-    if not sys.argv[2].isdigit() :
-        print (" Please enter a valid port number")
-        return False
+    if not validateInputArgs(filename, port_num, nPkts):
+        sys.exit()
     
-    if not sys.argv[3].isdigit() :
-        print (" Please enter a valid number of packets to send")
-        return False
-
-    return True    
-
-if validateArgs() :
-    proc = Server(sys.argv[1], sys.argv[2], sys.argv[3])
-    proc.start()
+    if nPkts is None:
+        nPkts = "ALL"
+        
+    client = Client(filename, port_num, nPkts)
+    client.connect()
+    client.send()
+    Client.close()
