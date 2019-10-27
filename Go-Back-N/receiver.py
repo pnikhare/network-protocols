@@ -2,7 +2,7 @@
 import socket
 import sys
 
-class Receiver :
+class Client:
 
     def __init__(self,port) :
         self.port = int(port)
@@ -10,24 +10,24 @@ class Receiver :
 
     def start(self) :
 
-        receiverSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         
         # Client connects to senders socket 
-        receiverSocket.connect(('127.0.0.1', self.port))
+        socket.connect(('127.0.0.1', self.port))
         
         # Sends data in bulk
-        receiverSocket.sendall('Hello, world')
+        socket.sendall('Hello, world')
         print("sent data to process at port "+ str(self.port))
-        data = receiverSocket.recv(1024)
-        receiverSocket.close()
+        ack = socket.recv(1024)
+        socket.close()
     
-        print 'Received', repr(data)
+        print("Received " + repr(ack))
 
 
 def validateArgs() :
 
     if len(sys.argv) != 2 :
-        print (" Please input 1 Arguments : ")
+        print (" Please provide input: ")
         print (" 1. Port Number")
         return False 
 
@@ -40,5 +40,5 @@ def validateArgs() :
 
 
 if validateArgs() :
-    proc = Receiver(sys.argv[1])
+    proc = Client(sys.argv[1])
     proc.start()
