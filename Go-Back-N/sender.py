@@ -3,26 +3,26 @@ import socket
 import sys
 import os
 
-class Sender :
+class Server:
 
-    def __init__(self,inputfile,port,numOfPkts) :
+    def __init__(self, inputfile, port, nPkts) :
 
         self.host = "127.0.0.1"
         self.port = int(port)
-        self.numOfPkts = numOfPkts
+        self.nPkts = nPkts
 
     def start(self) :
         
         # Initializing the sender process socket
-        senderSock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         
         # Sender process socket binds to given host,port
-        senderSock.bind((self.host, self.port))
+        socket.bind((self.host, self.port))
 
         # Sender process socket can listen to number of connections
-        senderSock.listen(1)
+        socket.listen(1)
         print ("Server listening on Port :"+ str(self.port))
-        conn, addr = senderSock.accept()
+        conn, addr = socket.accept()
         
         # Sender process runs infinitely untill interruption
         while True:
@@ -31,13 +31,14 @@ class Sender :
             print (data)
             if not data:
                 break
+            
         conn.sendall(data)
         conn.close()
 
 def validateArgs() :
     
     if len(sys.argv) != 4 :
-        print (" Please input 3 Arguments : ")
+        print (" Please provide the input: ")
         print (" 1. Input file name")
         print (" 2. Port Number")
         print (" 3. Number of Packets to send")
@@ -62,8 +63,5 @@ def validateArgs() :
     return True    
 
 if validateArgs() :
-    proc = Sender(sys.argv[1],sys.argv[2],sys.argv[3])
+    proc = Server(sys.argv[1], sys.argv[2], sys.argv[3])
     proc.start()
-
-
-
