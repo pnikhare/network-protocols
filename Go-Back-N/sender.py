@@ -71,6 +71,7 @@ class Window:
             # update the last ack from which we want to start the retransmission
             for k,v in self.transmissionWindow.items():
                 if v == False:
+                    print("last_recv_ack : ", k)
                     self.last_recv_ack = k
 
     def get_last_recv_ack(self):
@@ -142,20 +143,17 @@ class PktHandler(Thread):
         checksum = computeChecksum(cs)
         return pack('IHH' + str(len(payload)) + 's', seq_num, checksum, header, payload)
 
-    def resend_pkts(self, start_pkt, num_pkts):
+    def resend_pkts(self, start_pkt):
         
-        print("start pkt & num pkts ", start_pkt, num_pkts)
-        
-        idx = 0
-        while idx < num_pkts:
-            pkt = self.pkt_bucket.next_pkt(start_pkt + idx)
-            # seq_num = (start_pkt + idx) % self.window.get_max_ws()
+        pkt_num = start_pkt
+        while pkt_num < self.window.get_max_ws():
+            pkt = self.pkt_bucket.next_pkt(pkt_num)
             seq_num = pkt.get_seq_num()
-            print("Resending pkt with seq num ", seq_num)
+            print("Timer expired; Resending " + str(seq_num) + "; Timer started")
             final_pkt = self.format_pkt(seq_num, pkt.get_payload())
             self.s.sendto(final_pkt, ("127.0.0.1", 16000))
 
-            idx = idx + 1
+            pkt_num = pkt_num + 1
 
         self.window.reset_retransmission()
 
@@ -177,9 +175,8 @@ class PktHandler(Thread):
 
             # check for retransmission
             if self.window.need_retransmission():
-                num_pkts = self.window.get_ws() - self.window.get_last_recv_ack() + 1
-                start_pkt = next_pkt - num_pkts
-                self.resend_pkts(start_pkt, num_pkts)
+                next_expected_pkt = self.window.get_last_recv_ack()
+                self.resend_pkts(next_expected_pkt)
 
             curr_pkt = self.pkt_bucket.next_pkt(next_pkt)
             if curr_pkt == None:
@@ -188,7 +185,8 @@ class PktHandler(Thread):
             #seq_num = next_pkt % self.window.get_max_ws()
             seq_num = curr_pkt.get_seq_num()
 
-            print("Sending pkt with seq num ", seq_num)
+            #Sending Sn; Timer started
+            print("Sending " + str(seq_num) + "; Timer started")
             final_pkt = self.format_pkt(seq_num, curr_pkt.get_payload())
             self.s.sendto(final_pkt, ("127.0.0.1", 16000))
 
@@ -233,7 +231,8 @@ class AckHandler(Thread):
             pkt, addr = self.s.recvfrom(8)
             response = unpack('IHH', pkt)
             ack_num = response[0]
-            print("Received ack with seq num ", int(ack_num))
+            # Received ACK: ACK_NUM
+            print("Received ACK: " + str(ack_num))
 
             # increment the window size after receiving ack.
             self.window.inc_ws(int(ack_num))
