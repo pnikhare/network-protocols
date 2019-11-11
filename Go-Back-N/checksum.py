@@ -13,6 +13,6 @@ def computeChecksum(msg):
 
 def isMsgCorrupted(orig_cksum, msg):
     if computeChecksum(msg) == orig_cksum:
-        return True
+        return False
 
-    return False
+    return True

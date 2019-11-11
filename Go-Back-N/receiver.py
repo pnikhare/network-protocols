@@ -1,4 +1,5 @@
 #!/usr/bin/python
+
 import socket
 import sys
 import os
@@ -6,81 +7,91 @@ import hashlib
 from struct import unpack
 from struct import pack
 from checksum import isMsgCorrupted
+from packet import Packet
 
-class Packet:
-
-    def __init__(self, payload, checksum, seq_num):
-        self.payload  = payload
-        self.checksum = checksum
-        self.seq_num  = seq_num
-
-    def get_payload(self):
-        return self.payload
-
-    def get_seq_num(self):
-        return self.seq_num
-
-    def get_checksum(self):
-        return self.checksum
-
-class PktHandler:
+class RequestHandler:
 
     def __init__(self, s):
-        self.s = s
+        self.sock = s
+        self.expected_seq_num = 0
+
+    def set_expected_seq_num(self, seq_num):
+        self.expected_seq_num = seq_num
+
+    def get_expected_seq_num(self):
+        return self.expected_seq_num
+
+    def send_ack(self, seq_num, sender_addr):
+        print("ACK Sent: " + str(seq_num))
+        allZeros = int('0000000000000000', 2)
+        header = int('1010101010101010', 2)
+        packet = pack('IHH', seq_num, allZeros, header)
+        self.sock.sendto(packet, sender_addr)
 
     def recv_pkts(self):
 
         temp = True
         while True:
 
-            message, addr = self.s.recvfrom(1024)
-            pkt = unpack('IHH' + str(len(message) - 8) + 's', message)
+            message, addr = self.sock.recvfrom(1024)
+            pkt = unpack('IHHH' + str(len(message) - 10) + 's', message)
 
             # extract each parameter
             seq_num = pkt[0]
             checksum = pkt[1]
-            header = pkt[2]
-            data = pkt[3]
+            max_seq_num = pkt[2]
+            header = pkt[3]
+            data = pkt[4]
 
-            print("Receiving pkt with seq num "+ str(seq_num))
-
-            if isMsgCorrupted(checksum, message):
-                print "Received corrupted message"
+            # if received pkt is corrupted then discard it
+            if isMsgCorrupted(checksum, data):
+                print("Received Corrupted Segment " + str(seq_num) + ". Discarding.")
+                self.send_ack((self.get_expected_seq_num() - 1), addr)
                 continue
 
-            if temp and int(seq_num) == 2:
-                temp = False
-                continue
+            # if received pkt's seq num is not same as expected seq num then send ack with expected seq num - 1
+            if seq_num != self.get_expected_seq_num():
+                print("Received Segment Out of Order (seq num:" + str(seq_num) + ", expected seq num:" + str(self.get_expected_seq_num()) + ").")
+                self.send_ack((self.get_expected_seq_num() - 1), addr)
+            else:
+                print("Receiving Segment "+ str(seq_num))
 
-            allZeros = int('0000000000000000', 2)
-            header = int('1010101010101010', 2)
-            packet = pack('IHH', seq_num, allZeros, header)
-            self.s.sendto(packet, addr)
+                # To inject the timeout scenario
+                #if temp and int(seq_num) >= 2:
+                #    if seq_num == 3:
+                #        temp = False
+                #    continue
 
-            print("Sending ACK for pkt with seq num "+ str(seq_num))
+                self.set_expected_seq_num((seq_num + 1) % max_seq_num)
+                self.send_ack(seq_num, addr)
 
 class Server:
 
     def __init__(self, port):
         self.port = int(port)
-        self.s = None
-        self.pkt_handler = None
+        self.sock = None
+        self.request_handler = None
 
     def bind(self):
-        # handle exception
-        self.s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-        # Server binds to senders socket
-        self.s.bind(("127.0.0.1", self.port))
+        try:
+            # create & bind
+            self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            self.sock.bind(("127.0.0.1", self.port))
+        except Exception as e:
+            print_log("Falied to create the UDP socket")
+            return False
+
+        return True
 
     def receive(self):
 
-        self.pkt_handler = PktHandler(self.s)
-        self.pkt_handler.recv_pkts()
+        self.request_handler = RequestHandler(self.sock)
+        self.request_handler.recv_pkts()
 
     def close(self):
 
-        self.s.close()
+        self.sock.close()
 
 class InputParser:
 
@@ -110,6 +121,6 @@ if __name__ == "__main__":
         sys.exit()
 
     server = Server(port_num)
-    server.bind()
-    server.receive()
+    if server.bind():
+        server.receive()
     #server.close()
