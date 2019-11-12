@@ -8,6 +8,9 @@ from struct import unpack
 from struct import pack
 from checksum import isMsgCorrupted
 from packet import Packet
+from error import inject_error
+
+PACKET_LOSS_PROBABILITY = 0.01
 
 class RequestHandler:
 
@@ -46,21 +49,27 @@ class RequestHandler:
             # if received pkt is corrupted then discard it
             if isMsgCorrupted(checksum, data):
                 print("Received Corrupted Segment " + str(seq_num) + ". Discarding.")
-                self.send_ack((self.get_expected_seq_num() - 1), addr)
+                #if seq_num != 0:
+                #    self.send_ack((self.get_expected_seq_num() - 1), addr)
+                #else:
+                #    self.send_ack((max_seq_num - 1), addr)
                 continue
 
             # if received pkt's seq num is not same as expected seq num then send ack with expected seq num - 1
             if seq_num != self.get_expected_seq_num():
                 print("Received Segment Out of Order (seq num:" + str(seq_num) + ", expected seq num:" + str(self.get_expected_seq_num()) + ").")
-                self.send_ack((self.get_expected_seq_num() - 1), addr)
+                if self.get_expected_seq_num() != 0:
+                    self.send_ack((self.get_expected_seq_num() - 1), addr)
+                else:
+                    self.send_ack((max_seq_num - 1), addr)
+                #self.send_ack((self.get_expected_seq_num() - 1), addr)
             else:
                 print("Receiving Segment "+ str(seq_num))
 
-                # To inject the timeout scenario
-                #if temp and int(seq_num) >= 2:
-                #    if seq_num == 3:
-                #        temp = False
-                #    continue
+                # Inject the packet loss
+                if (inject_error(PACKET_LOSS_PROBABILITY)):
+                    print("Injecting packet loss for segment " + str(seq_num))
+                    continue
 
                 self.set_expected_seq_num((seq_num + 1) % max_seq_num)
                 self.send_ack(seq_num, addr)

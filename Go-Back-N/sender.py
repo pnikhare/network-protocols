@@ -16,8 +16,12 @@ from collections import OrderedDict
 from checksum import computeChecksum
 from log import print_log
 from packet import Packet
+from error import inject_error
 
 perform_corruption = False
+
+ACK_LOSS_PROBABILITY = 0.01
+BIT_ERROR_PROBABILITY = 0.05
 
 LOCK = Lock()
 
@@ -207,12 +211,10 @@ class RequestHandler(Thread):
         # jsingh
         checksum = computeChecksum(payload)
         
-        # To inject corruption
-        global perform_corruption
-        if perform_corruption == True:
-            if seq_num == 2:
-                perform_corruption = False
-                checksum = 0
+        # Inject corruption
+        if inject_error(BIT_ERROR_PROBABILITY):
+            print_log("Injecting bit error for segment " + str(seq_num))
+            checksum = 0
         
         return pack('IHHH' + str(len(payload)) + 's', seq_num, checksum, max_seq_num, header, payload)
 
@@ -320,6 +322,11 @@ class ResponseHandler(Thread):
             print_log("Received ACK: " + str(ack_num))
 
             if (self.window.ignore_ack(ack_num) == False):
+                continue
+
+            # inject ack loss
+            if inject_error(ACK_LOSS_PROBABILITY):
+                print_log("Injecting ack loss for ack " + str(ack_num))
                 continue
 
             # increment the window size after receiving ack.
