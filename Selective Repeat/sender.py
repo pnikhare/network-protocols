@@ -66,30 +66,40 @@ class Window:
     # After receiving Ack
     def recv_ack(self, seq_num):
         with LOCK:
-            self.transmissionWindow[seq_num] = True
+            if seq_num in self.transmissionWindow:
+                pkt = self.transmissionWindow[seq_num]
+                if pkt is not None:
+                    pkt.recv_ack(True)
 
-            # delete all the entries for the pkts whose seq num is less than equal to
-            # the received ack
-            for k,v in self.transmissionWindow.items():
 
-                self.size = self.size + 1
+    def stop(self, seq_num):
+        with LOCK:
+            if seq_num in self.transmissionWindow:
+                pkt = self.transmissionWindow[seq_num]
+                pkt.stop_timer()
 
-                if seq_num != self.last_recv_ack:
-                    self.num_received_acks = self.num_received_acks + 1
-
-                del self.transmissionWindow[k]
-
-                if k == seq_num:
-                    break
-
+            if seq_num == self.expected_ack:
+                for k, pkt in self.transmissionWindow.items():
+                    if pkt is not None:
+                        if pkt[0].get_sent_time() == -1 and pkt[0].get_recv_ack() == True:
+                            del self.transmissionWindow[k]
+                        else
+                            break
+                         
             self.update_expected_ack()
 
             self.last_recv_ack = seq_num
 
     # After sending msg
-    def reduceWindow(self, seq_num):
+    def reduceWindow(self, pkt):
         with LOCK:
-            self.transmissionWindow[seq_num] = False
+            seq_num = pkt.get_seq_num()
+
+            time = time.time()
+
+            pkt.start_timer(time)
+
+            self.transmissionWindow[seq_num] = pkt
 
             # as we have consumed the window by one pkt, decrease the size by 1
             self.size = self.size - 1
@@ -114,6 +124,29 @@ class Window:
 
             self.next_pkt = self.next_pkt - len(self.transmissionWindow)
             self.transmissionWindow.clear()
+
+    def get_pkt_sent_time(self, seq_num):
+        with LOCK:
+            pkt = self.transmissionWindow[seq_num][1]
+            if pkt is not None:
+                return pkt.get_sent_time()
+
+            return -1
+
+    def reset_pkt_sent_time(self, seq_num):
+        with LOCK:
+            time = time.time()
+            pkt = self.transmissionWindow[seq_num][1]
+            if pkt is not None:
+                pkt.reset_sent_time(time)
+
+    def is_ack_recv(self, seq_num):
+        with LOCK:
+            pkt = self.transmissionWindow[seq_num][1]
+            if pkt is not None:
+                return pkt.get_recv_ack()
+
+            return False
 
     def get_last_recv_ack(self):
         with LOCK:
@@ -196,6 +229,50 @@ class PacketBucket:
     def get_size(self):
         return len(self.pkt_list)
 
+
+class Timer(Thread):
+
+    def __init__(self, sock, port, window, timeout, pkt):
+        Thread.__init__(self)
+        self.sock = sock
+        self.port = port
+        self.window = window
+        self.timeout = timeout
+        self.packet = pkt
+
+    def format_pkt(self, seq_num, payload):
+        header = int('0101010101010101', 2)
+        max_seq_num = self.window.get_max_seq_num()
+        #cs = pack('IHH' + str(len(payload)) + 's', seq_num, max_seq_num, header, payload)
+        # jsingh
+        checksum = computeChecksum(payload)
+
+        # Inject corruption
+        if inject_error(BIT_ERROR_PROBABILITY):
+            print_log("Injecting bit error for segment " + str(seq_num))
+            checksum = 0
+
+        return pack('IHHH' + str(len(payload)) + 's', seq_num, checksum, max_seq_num, header, payload)
+
+    def run(self):
+
+        # send the pkt
+        final_pkt = self.format_pkt(packet.get_seq_num(), packet.get_payload())
+        self.sock.sendto(final_pkt, ("127.0.0.1", self.port))
+
+        self.window.reduceWindow(self.packet)
+
+        # start the timer
+        while self.window.is_ack_recv(self.packet.get_seq_num()):
+            timeLapsed = (time.time() - self.window.get_pkt_sent_time(self.packet.get_seq_num()))
+            if timeLapsed > self.timeout:
+                # resend the pkt
+                self.sock.sendto(final_pkt, ("127.0.0.1", self.port))
+                self.window.reset_pkt_sent_time(self.packet.SequenceNumber)
+
+        with LOCK:
+            self.window.stop(self.packet.get_seq_num())
+
 class RequestHandler(Thread):
 
     def __init__(self, sock, filename, nPkts, mss, window):
@@ -234,7 +311,7 @@ class RequestHandler(Thread):
             self.sock.sendto(final_pkt, ("127.0.0.1", 16000))
 
             pkt_num = pkt_num + 1
-            self.window.reduceWindow(seq_num)
+            self.window.reduceWindow(pkt)
 
         self.window.reset_retransmission()
 
@@ -267,15 +344,11 @@ class RequestHandler(Thread):
             if curr_pkt is None:
                 continue
 
-            #seq_num = next_pkt % self.window.get_max_ws()
-            seq_num = curr_pkt.get_seq_num()
+            time = time.time()
+            curr_pkt.start_timer(time)
 
-            #Sending Sn; Timer started
-            print_log("Sending " + str(seq_num) + "; Timer started")
-            final_pkt = self.format_pkt(seq_num, curr_pkt.get_payload())
-            self.sock.sendto(final_pkt, ("127.0.0.1", 16000))
-
-            self.window.reduceWindow(seq_num)
+            timer = Timer(self.sock, self.port, self.window, self.time, curr_pkt)
+            timer.start()
 
     def run(self):
 
