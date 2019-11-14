@@ -21,7 +21,7 @@ class Packet:
     def start_timer(self, time):
         self.sent_time = time
 
-    def reset_sent_time(selt, time):
+    def reset_sent_time(self, time):
         self.sent_time = time
 
     def ack_received(self):

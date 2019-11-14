@@ -18,6 +18,7 @@ from log import print_log
 from packet import Packet
 from error import inject_error
 import time
+from multiprocessing import Queue
 
 perform_corruption = False
 
@@ -25,6 +26,7 @@ ACK_LOSS_PROBABILITY = 0.01
 BIT_ERROR_PROBABILITY = 0.05
 
 LOCK = Lock()
+QLOCK = Lock()
 
 class Window:
 
@@ -74,7 +76,7 @@ class Window:
                     pkt.ack_received()
                     self.num_received_acks += 1
                      
-        self.stop(seq_num)
+        #self.stop(seq_num)
 
     def stop(self, seq_num):
         with LOCK:
@@ -134,24 +136,27 @@ class Window:
 
     def get_pkt_sent_time(self, seq_num):
         with LOCK:
-            pkt = self.transmissionWindow.items()[seq_num][1]
-            if pkt is not None:
-                return pkt.get_sent_time()
+            if seq_num in self.transmissionWindow:
+                pkt = self.transmissionWindow[seq_num]
+                if pkt is not None:
+                    return pkt.get_sent_time()
 
             return -1
 
     def reset_pkt_sent_time(self, seq_num):
         with LOCK:
             #time = time.time()
-            pkt = self.transmissionWindow.items()[seq_num][1]
-            if pkt is not None:
-                pkt.reset_sent_time(time.time())
+            if seq_num in self.transmissionWindow:
+                pkt = self.transmissionWindow[seq_num]
+                if pkt is not None:
+                    pkt.reset_sent_time(time.time())
 
     def is_ack_recv(self, seq_num):
         with LOCK:
-            pkt = self.transmissionWindow.items()[seq_num][1]
-            if pkt is not None:
-                return pkt.is_ack_received()
+            if seq_num in self.transmissionWindow:
+                pkt = self.transmissionWindow[seq_num]
+                if pkt is not None:
+                    return pkt.is_ack_received()
 
             return False
 
@@ -239,13 +244,14 @@ class PacketBucket:
 
 class Timer(Thread):
 
-    def __init__(self, sock, port, window, timeout, pkt):
+    def __init__(self, sock, port, window, timeout, nPkt):
         Thread.__init__(self)
         self.sock = sock
         self.port = port
         self.window = window
         self.timeout = timeout
-        self.packet = pkt
+        self.nPkts = nPkt
+        self.q = Queue()
 
     def format_pkt(self, seq_num, payload):
         header = int('0101010101010101', 2)
@@ -254,39 +260,52 @@ class Timer(Thread):
         # jsingh
         checksum = computeChecksum(payload)
 
-        # Inject corruption
-        #if inject_error(BIT_ERROR_PROBABILITY):
-        #    print_log("Injecting bit error for segment " + str(seq_num))
-        #    checksum = 0
-
         return pack('IHHH' + str(len(payload)) + 's', seq_num, checksum, max_seq_num, header, payload)
+
+    def enqueue_pkt(self, pkt):
+        with QLOCK:
+            self.q.put(pkt)
+
+    def get_pkt(self):
+        with QLOCK:
+            return self.q.get()
+
+    def get_size(self):
+        with QLOCK:
+            return self.q.empty()
 
     def run(self):
 
-        print_log("Sending " + str(self.packet.get_seq_num()) + "; Timer started")
+        count = 0
+        while True:
 
-        # send the pkt
-        final_pkt = self.format_pkt(self.packet.get_seq_num(), self.packet.get_payload())
-        self.sock.sendto(final_pkt, ("127.0.0.1", self.port))
+            if count == self.nPkts:
+                break
 
-        idx = 0
+            if self.get_size() == True:
+                continue
 
-        # start the timer
-        while not self.window.is_ack_recv(self.packet.get_seq_num()):
-            timeLapsed = (time.time() - self.window.get_pkt_sent_time(self.packet.get_seq_num()))
-            if idx <= 10:
-                print ("timeLapsed " + str(timeLapsed) + " sent time " + str(self.window.get_pkt_sent_time(self.packet.get_seq_num())))
-                idx +=1
+            packet = self.get_pkt();
+            if packet is None:
+                continue
+             
+            # start the timer
+            if not self.window.is_ack_recv(packet.get_seq_num()):
+                timeLapsed = (time.time() - self.window.get_pkt_sent_time(packet.get_seq_num()))
             
-            if timeLapsed > self.timeout:
+                if timeLapsed > self.timeout:
+                    
+                    print_log("Resending the segment " + str(packet.get_seq_num()))
+                    # resend the pkt
+                    final_pkt = self.format_pkt(packet.get_seq_num(), packet.get_payload())
+                    self.sock.sendto(final_pkt, ("127.0.0.1", self.port))
+                    self.window.reset_pkt_sent_time(packet.get_seq_num())
                 
-                print_log("Resending the segment " + str(final_pkt.get_seq_num()))
-                # resend the pkt
-                self.sock.sendto(final_pkt, ("127.0.0.1", self.port))
-                self.window.reset_pkt_sent_time(self.packet.SequenceNumber)
-
-        with LOCK:
-            self.window.stop(self.packet.get_seq_num())
+                self.enqueue_pkt(packet)
+            else:
+                #with LOCK:
+                self.window.stop(packet.get_seq_num())
+                count += 1
 
 class RequestHandler(Thread):
 
@@ -306,9 +325,9 @@ class RequestHandler(Thread):
         checksum = computeChecksum(payload)
 
         # Inject corruption
-        #if inject_error(BIT_ERROR_PROBABILITY):
-        #    print_log("Injecting bit error for segment " + str(seq_num))
-        #    checksum = 0
+        if inject_error(BIT_ERROR_PROBABILITY):
+            print_log("Injecting bit error for segment " + str(seq_num))
+            checksum = 0
 
         return pack('IHHH' + str(len(payload)) + 's', seq_num, checksum, max_seq_num, header, payload)
 
@@ -336,6 +355,9 @@ class RequestHandler(Thread):
 
         # Generate packets
         self.pkt_bucket.create_pkts()
+
+        timer = Timer(self.sock, self.port, self.window, self.timeout, self.pkt_bucket.get_size())
+        timer.start()
 
         while True:
 
@@ -373,9 +395,10 @@ class RequestHandler(Thread):
             # send the pkt
             final_pkt = self.format_pkt(curr_pkt.get_seq_num(), curr_pkt.get_payload())
             self.sock.sendto(final_pkt, ("127.0.0.1", self.port))
-            
+           
+            timer.enqueue_pkt(curr_pkt) 
             #self.window.stop(curr_pkt.get_seq_num())
-            #timer = Timer(self.sock, self.port, self.window, self.timeout, curr_pkt)
+            #timer = Timer(self.sock, self.port, self.window, self.timeout, self.nPkts)
             #timer.start()
 
     def run(self):
@@ -405,14 +428,9 @@ class ResponseHandler(Thread):
                 return
 
             # Add timer to make sure client get back Ack with in a time T.
-            #data = select.select([self.sock], [], [], self.timeout)
-            #if not data[0]:
-            #    print "timing out"
-            #    continue
-
-            # wait for a pkt to send
-            #if self.window.get_ws() == self.window.get_max_ws():
-            #    continue
+            data = select.select([self.sock], [], [], self.timeout)
+            if not data[0]:
+                continue
 
             pkt, addr = self.sock.recvfrom(8)
             response = unpack('IHH', pkt)
@@ -422,13 +440,12 @@ class ResponseHandler(Thread):
             print_log("Received ACK: " + str(ack_num))
 
             if (self.window.ignore_ack(ack_num) == False):
-                print("ignoring ack with seq num " + str(ack_num))
                 continue
 
             # inject ack loss
-            #if inject_error(ACK_LOSS_PROBABILITY):
-            #    print_log("Injecting ack loss for ack " + str(ack_num))
-            #    continue
+            if inject_error(ACK_LOSS_PROBABILITY):
+                print_log("Injecting ack loss for ack " + str(ack_num))
+                continue
 
             # increment the window size after receiving ack.
             self.window.recv_ack(ack_num)
@@ -467,7 +484,7 @@ class Client:
 
         self.request_handler = RequestHandler(self.sock, self.port, self.nPkts, self.timeout, 80, self.window)
         self.response_handler = ResponseHandler(self.sock, self.nPkts, self.timeout, self.window)
-
+        
         self.request_handler.start()
         self.response_handler.start()
 

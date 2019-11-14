@@ -110,6 +110,8 @@ class RequestHandler:
             if self.window.get_base_pkt() < self.window.get_end_pkt():
                 if seq_num < self.window.get_base_pkt() and seq_num > self.window.get_end_pkt():
                     print("Received Segment Out of Order (Base seq num:" + str(self.window.get_base_pkt()) + ", Last seq num:" + str(self.get_end_pkt()) + ").")
+                    self.send_ack(seq_num, addr)
+                    continue
                 else:
                     print("Receiving Segment "+ str(seq_num))
                     self.send_ack(seq_num, addr)
@@ -118,21 +120,18 @@ class RequestHandler:
             else:
                 if seq_num < self.window.get_base_pkt() or seq_num > self.window.get_end_pkt():
                     print("Received Segment Out of Order (seq num:" + str(seq_num) + ", expected seq num:" + str(self.get_expected_seq_num()) + ").")
+                    self.send_ack(seq_num, addr)
+                    continue
                 else:
                     print("Receiving Segment "+ str(seq_num))
                     self.send_ack(seq_num, addr)
                     self.window.slide(seq_num)
                     continue
 
-            print("Receiving Segment "+ str(seq_num))
-
             # Inject the packet loss
             #if (inject_error(PACKET_LOSS_PROBABILITY)):
             #    print("Injecting packet loss for segment " + str(seq_num))
             #    continue
-
-            self.send_ack(seq_num, addr)
-            self.window.slide(seq_num)
 
 class Server:
 
