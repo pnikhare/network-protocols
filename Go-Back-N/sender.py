@@ -198,9 +198,10 @@ class PacketBucket:
 
 class RequestHandler(Thread):
 
-    def __init__(self, sock, filename, nPkts, mss, window):
+    def __init__(self, sock, port, nPkts, mss, window):
         Thread.__init__(self)
         self.sock = sock
+        self.port = port
         self.pkt_bucket = PacketBucket(nPkts, mss, window.get_max_seq_num())
         self.window = window
 
@@ -231,7 +232,7 @@ class RequestHandler(Thread):
 
             print_log("Timer expired; Resending " + str(seq_num) + "; Timer started")
             final_pkt = self.format_pkt(seq_num, pkt.get_payload())
-            self.sock.sendto(final_pkt, ("127.0.0.1", 16000))
+            self.sock.sendto(final_pkt, ("127.0.0.1", self.port))
 
             pkt_num = pkt_num + 1
             self.window.reduceWindow(seq_num)
@@ -273,7 +274,7 @@ class RequestHandler(Thread):
             #Sending Sn; Timer started
             print_log("Sending " + str(seq_num) + "; Timer started")
             final_pkt = self.format_pkt(seq_num, curr_pkt.get_payload())
-            self.sock.sendto(final_pkt, ("127.0.0.1", 16000))
+            self.sock.sendto(final_pkt, ("127.0.0.1", self.port))
 
             self.window.reduceWindow(seq_num)
 
@@ -364,7 +365,7 @@ class Client:
 
     def send(self):
 
-        self.request_handler = RequestHandler(self.sock, self.filename, self.nPkts, 80, self.window)
+        self.request_handler = RequestHandler(self.sock, self.port, self.nPkts, 80, self.window)
         self.response_handler = ResponseHandler(self.sock, self.nPkts, self.timeout, self.window)
 
         self.request_handler.start()
