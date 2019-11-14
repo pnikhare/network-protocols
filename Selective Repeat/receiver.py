@@ -18,7 +18,7 @@ class Window:
     def __init__(self, seq_num):
         self.basePkt = 0
         self.endPkt = seq_num - 1
-        self.size = size
+        self.size = 0
         self.max_seq_num = seq_num
         self.receivingWindow = OrderedDict()
 
@@ -43,11 +43,11 @@ class Window:
 
                 sequenceNumber = (sequenceNumber + 1) % self.max_seq_num
 
-        if len(receivingWindow) and receivingWindow[0][1]:
-            seq_num = receivingWindow[0][0]
-            self.basePkt = (receivingWindow[0][0] + 1) % self.max_seq_num
+        if len(self.receivingWindow) and self.receivingWindow.items()[0][0]:
+            seq_num = self.receivingWindow.items()[0]
+            self.basePkt = (self.receivingWindow.items()[0] + 1) % self.max_seq_num
             self.basePkt = (self.basePkt + self.max_seq_num - 1) % self.max_seq_num
-            del receivingWindow[seq_num]
+            del self.receivingWindow[seq_num]
 
     def get_base_pkt(self):
         return self.basePkt
@@ -111,6 +111,7 @@ class RequestHandler:
                 if seq_num < self.window.get_base_pkt() and seq_num > self.window.get_end_pkt():
                     print("Received Segment Out of Order (Base seq num:" + str(self.window.get_base_pkt()) + ", Last seq num:" + str(self.get_end_pkt()) + ").")
                 else:
+                    print("Receiving Segment "+ str(seq_num))
                     self.send_ack(seq_num, addr)
                     self.window.slide(seq_num)
                     continue
@@ -118,6 +119,7 @@ class RequestHandler:
                 if seq_num < self.window.get_base_pkt() or seq_num > self.window.get_end_pkt():
                     print("Received Segment Out of Order (seq num:" + str(seq_num) + ", expected seq num:" + str(self.get_expected_seq_num()) + ").")
                 else:
+                    print("Receiving Segment "+ str(seq_num))
                     self.send_ack(seq_num, addr)
                     self.window.slide(seq_num)
                     continue

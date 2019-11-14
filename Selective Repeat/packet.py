@@ -7,7 +7,7 @@ class Packet:
         self.checksum = checksum
         self.seq_num  = seq_num
         self.sent_time = None
-        self.recv_ack = False
+        self.ack_recv = False
 
     def get_payload(self):
         return self.payload
@@ -24,14 +24,14 @@ class Packet:
     def reset_sent_time(selt, time):
         self.sent_time = time
 
-    def recv_ack(self, res):
-        self.recv_ack = res
+    def ack_received(self):
+        self.ack_recv = True
 
     def get_sent_time(self):
         return self.sent_time
 
-    def get_recv_ack(self):
-        return self.recv_ack
+    def is_ack_received(self):
+        return self.ack_recv
 
     def stop_timer(self):
         self.sent_time = None
