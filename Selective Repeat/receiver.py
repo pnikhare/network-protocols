@@ -4,12 +4,15 @@ import socket
 import sys
 import os
 import hashlib
+import math
+import signal
 from struct import unpack
 from struct import pack
 from checksum import isMsgCorrupted
 from packet import Packet
 from error import inject_error
 from collections import OrderedDict
+from signal_handler import signal_handler
 
 PACKET_LOSS_PROBABILITY = 0.01
 
@@ -18,23 +21,22 @@ class Window:
     def __init__(self, seq_num):
         self.basePkt = 0
         self.endPkt = seq_num - 1
-        self.size = 0
+        self.max_ws = int(math.pow(2, seq_num - 1))
         self.max_seq_num = seq_num
         self.receivingWindow = OrderedDict()
 
-    def get_size(self):
+    def get_max_ws(self):
         return self.size
 
     def duplicate(self, seq_num):
+        return False
         if seq_num in self.receivingWindow:
             return True
 
         return False
 
     def slide(self, seq_num):
-        if seq_num == self.basePkt:
-             self.receivingWindow[seq_num] = True
-        else:
+        if seq_num != self.basePkt:
             sequenceNumber = self.basePkt
 
             while sequenceNumber != seq_num:
@@ -43,10 +45,12 @@ class Window:
 
                 sequenceNumber = (sequenceNumber + 1) % self.max_seq_num
 
+        self.receivingWindow[seq_num] = True
+
         if len(self.receivingWindow) and self.receivingWindow.items()[0][0]:
             seq_num = self.receivingWindow.items()[0]
             self.basePkt = (self.receivingWindow.items()[0] + 1) % self.max_seq_num
-            self.basePkt = (self.basePkt + self.max_seq_num - 1) % self.max_seq_num
+            self.endPkt = (self.basePkt + self.get_max_ws() - 1) % self.max_seq_num
             del self.receivingWindow[seq_num]
 
     def get_base_pkt(self):
@@ -91,16 +95,13 @@ class RequestHandler:
 
             if not self.window_created:
                 self.window = Window(max_seq_num)
+                self.window_created = True
 
             # if received pkt is corrupted then discard it
             if isMsgCorrupted(checksum, data):
                 print("Received Corrupted Segment " + str(seq_num) + ". Discarding.")
                 continue
 
-            # if received pkt is duplicate then discard it
-            if self.window.duplicate(seq_num):
-                print("Received Duplicate Segment " + str(seq_num) + ". Discarding")
-                continue
 
             # If received pkt is out of order then
             #
@@ -112,28 +113,29 @@ class RequestHandler:
                     print("Received Segment Out of Order (Base seq num:" + str(self.window.get_base_pkt()) + ", Last seq num:" + str(self.get_end_pkt()) + ").")
                     self.send_ack(seq_num, addr)
                     continue
-                else:
-                    print("Receiving Segment "+ str(seq_num))
-                    self.send_ack(seq_num, addr)
-                    self.window.slide(seq_num)
-                    continue
             else:
                 if seq_num < self.window.get_base_pkt() or seq_num > self.window.get_end_pkt():
                     print("Received Segment Out of Order (seq num:" + str(seq_num) + ", expected seq num:" + str(self.get_expected_seq_num()) + ").")
                     self.send_ack(seq_num, addr)
                     continue
-                else:
-                    print("Receiving Segment "+ str(seq_num))
-                    self.send_ack(seq_num, addr)
-                    self.window.slide(seq_num)
+                           
+            # if received pkt is duplicate then discard it
+            if self.window.duplicate(seq_num):
+                print("Received Duplicate Segment " + str(seq_num) + ". Discarding")
+                continue
+            else:
+                print("Receiving Segment "+ str(seq_num))
+
+                # Inject the packet loss
+                if (inject_error(PACKET_LOSS_PROBABILITY)):
+                    print("Injecting packet loss for segment " + str(seq_num))
                     continue
 
-            # Inject the packet loss
-            #if (inject_error(PACKET_LOSS_PROBABILITY)):
-            #    print("Injecting packet loss for segment " + str(seq_num))
-            #    continue
+                self.send_ack(seq_num, addr)
+                self.window.slide(seq_num)
+                continue
 
-class Server:
+class Receiver:
 
     def __init__(self, port):
         self.port = int(port)
@@ -188,7 +190,9 @@ if __name__ == "__main__":
     if not parser.validateInputArgs():
         sys.exit()
 
-    server = Server(port_num)
-    if server.bind():
-        server.receive()
-    #server.close()
+    receiver = Receiver(port_num)
+    if receiver.bind():
+        print("Starting receiver. Press Ctrl+C to terminate")
+        signal.signal(signal.SIGINT, signal_handler)
+        receiver.receive()
+    #receiver.close()

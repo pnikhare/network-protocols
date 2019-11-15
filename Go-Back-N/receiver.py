@@ -4,11 +4,13 @@ import socket
 import sys
 import os
 import hashlib
+import signal
 from struct import unpack
 from struct import pack
 from checksum import isMsgCorrupted
 from packet import Packet
 from error import inject_error
+from signal_handler import signal_handler
 
 PACKET_LOSS_PROBABILITY = 0.01
 
@@ -49,10 +51,6 @@ class RequestHandler:
             # if received pkt is corrupted then discard it
             if isMsgCorrupted(checksum, data):
                 print("Received Corrupted Segment " + str(seq_num) + ". Discarding.")
-                #if seq_num != 0:
-                #    self.send_ack((self.get_expected_seq_num() - 1), addr)
-                #else:
-                #    self.send_ack((max_seq_num - 1), addr)
                 continue
 
             # if received pkt's seq num is not same as expected seq num then send ack with expected seq num - 1
@@ -62,7 +60,6 @@ class RequestHandler:
                     self.send_ack((self.get_expected_seq_num() - 1), addr)
                 else:
                     self.send_ack((max_seq_num - 1), addr)
-                #self.send_ack((self.get_expected_seq_num() - 1), addr)
             else:
                 print("Receiving Segment "+ str(seq_num))
 
@@ -131,5 +128,7 @@ if __name__ == "__main__":
 
     server = Server(port_num)
     if server.bind():
+        print("Starting receiver. Press Ctrl+C to terminate")
+        signal.signal(signal.SIGINT, signal_handler)
         server.receive()
     #server.close()

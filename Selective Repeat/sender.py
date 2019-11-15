@@ -6,19 +6,22 @@ import os
 import hashlib
 import string
 import random
+import math
+import select
+import time
+import signal
 from struct import pack
 from struct import unpack
 from threading import Thread
 from threading import Lock
-import math
-import select
+from threading import Event
 from collections import OrderedDict
 from checksum import computeChecksum
 from log import print_log
 from packet import Packet
 from error import inject_error
-import time
 from multiprocessing import Queue
+from signal_handler import signal_handler
 
 perform_corruption = False
 
@@ -72,15 +75,11 @@ class Window:
             if seq_num in self.transmissionWindow:
                 pkt = self.transmissionWindow[seq_num]
                 if pkt is not None:
-                    #print("Recived ack for " + str(pkt.get_seq_num()))
                     pkt.ack_received()
                     self.num_received_acks += 1
-                     
-        #self.stop(seq_num)
 
     def stop(self, seq_num):
         with LOCK:
-            #print("stoping window")
             if seq_num in self.transmissionWindow:
                 pkt = self.transmissionWindow[seq_num]
                 pkt.stop_timer()
@@ -88,9 +87,7 @@ class Window:
             if seq_num == self.expected_ack:
                 for k, pkt in self.transmissionWindow.items():
                     if pkt is not None:
-                        #print("sent time and is ack received " + str(pkt.get_sent_time()) + " " + str(pkt.is_ack_received()))
                         if pkt.get_sent_time() == None and pkt.is_ack_received() == True:
-                            #print("deleting entry")
                             del self.transmissionWindow[k]
                         else:
                             break
@@ -246,6 +243,7 @@ class Timer(Thread):
 
     def __init__(self, sock, port, window, timeout, nPkt):
         Thread.__init__(self)
+        self.shutdown_flag = Event()
         self.sock = sock
         self.port = port
         self.window = window
@@ -277,7 +275,7 @@ class Timer(Thread):
     def run(self):
 
         count = 0
-        while True:
+        while not self.shutdown_flag.is_set():
 
             if count == self.nPkts:
                 break
@@ -288,19 +286,19 @@ class Timer(Thread):
             packet = self.get_pkt();
             if packet is None:
                 continue
-             
+
             # start the timer
             if not self.window.is_ack_recv(packet.get_seq_num()):
                 timeLapsed = (time.time() - self.window.get_pkt_sent_time(packet.get_seq_num()))
-            
+
                 if timeLapsed > self.timeout:
-                    
+
                     print_log("Resending the segment " + str(packet.get_seq_num()))
                     # resend the pkt
                     final_pkt = self.format_pkt(packet.get_seq_num(), packet.get_payload())
                     self.sock.sendto(final_pkt, ("127.0.0.1", self.port))
                     self.window.reset_pkt_sent_time(packet.get_seq_num())
-                
+
                 self.enqueue_pkt(packet)
             else:
                 #with LOCK:
@@ -311,6 +309,7 @@ class RequestHandler(Thread):
 
     def __init__(self, sock, port, nPkts, timeout, mss, window):
         Thread.__init__(self)
+        self.shutdown_flag = Event()
         self.sock = sock
         self.port = port
         self.pkt_bucket = PacketBucket(nPkts, mss, window.get_max_seq_num())
@@ -359,7 +358,7 @@ class RequestHandler(Thread):
         timer = Timer(self.sock, self.port, self.window, self.timeout, self.pkt_bucket.get_size())
         timer.start()
 
-        while True:
+        while not self.shutdown_flag.is_set():
 
             if self.window.completed_transmission():
                 print_log("Finished sending all the packets.")
@@ -395,11 +394,13 @@ class RequestHandler(Thread):
             # send the pkt
             final_pkt = self.format_pkt(curr_pkt.get_seq_num(), curr_pkt.get_payload())
             self.sock.sendto(final_pkt, ("127.0.0.1", self.port))
-           
-            timer.enqueue_pkt(curr_pkt) 
+
+            timer.enqueue_pkt(curr_pkt)
             #self.window.stop(curr_pkt.get_seq_num())
             #timer = Timer(self.sock, self.port, self.window, self.timeout, self.nPkts)
             #timer.start()
+
+        timer.shutdown_flag.set()
 
     def run(self):
 
@@ -409,6 +410,7 @@ class ResponseHandler(Thread):
 
     def __init__(self, sock, nPkts, timeout, window):
         Thread.__init__(self)
+        self.shutdown_flag = Event()
         self.sock = sock
         self.nPkts = nPkts
         self.timeout = timeout
@@ -420,14 +422,14 @@ class ResponseHandler(Thread):
 
     def recv_pkts(self):
 
-        while True:
+        while not self.shutdown_flag.is_set():
 
             if self.window.get_num_received_acks() == self.nPkts:
                 self.window.markTransmissionFinished()
                 print_log("Finished receiving all the acks")
                 return
 
-            # Add timer to make sure client get back Ack with in a time T.
+            # Add timer to make sure sender get back Ack with in a time T.
             data = select.select([self.sock], [], [], self.timeout)
             if not data[0]:
                 continue
@@ -457,17 +459,16 @@ class ResponseHandler(Thread):
         # After receiving all the ACKs, we should close the sockets
         self.sock.close()
 
-class Client:
+class Sender:
 
-    def __init__(self, filename, port, nPkts, seq_num_bits, timeout):
+    def __init__(self, filename, port, nPkts, seq_num_bits, timeout, segSize):
         self.filename = filename
         self.port = int(port)
         self.nPkts = nPkts
         self.sock = None
-        self.request_handler = None
-        self.response_handler = None
         self.window = Window(seq_num_bits)
         self.timeout = timeout
+        self.max_seg = segSize
 
     def connect(self):
         # handle exception
@@ -482,11 +483,19 @@ class Client:
 
     def send(self):
 
-        self.request_handler = RequestHandler(self.sock, self.port, self.nPkts, self.timeout, 80, self.window)
-        self.response_handler = ResponseHandler(self.sock, self.nPkts, self.timeout, self.window)
+        try:
+            request_handler = RequestHandler(self.sock, self.port, self.nPkts, self.timeout, self.max_seg, self.window)
+            response_handler = ResponseHandler(self.sock, self.nPkts, self.timeout, self.window)
+
+            request_handler.start()
+            response_handler.start()
         
-        self.request_handler.start()
-        self.response_handler.start()
+        except ServiceExit:
+            self.request_handler.shutdown_flag.set()
+            self.response_handler.shutdown_flag.set()
+
+            self.request_handler.join()
+            self.response_handler.join()
 
     def close(self):
 
@@ -564,6 +573,7 @@ if __name__ == "__main__":
     print_log("Timeout Value : " + str(timeout))
     print_log("Segment size : " + str(segSize))
 
-    client = Client(filename, int(port_num), int(nPkts), int(seqNumBits), int(timeout))
-    if client.connect():
-        client.send()
+    sender = Sender(filename, int(port_num), int(nPkts), int(seqNumBits), int(timeout), int(segSize))
+    if sender.connect():
+        signal.signal(signal.SIGINT, signal_handler)
+        sender.send()

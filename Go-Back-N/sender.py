@@ -208,8 +208,6 @@ class RequestHandler(Thread):
     def format_pkt(self, seq_num, payload):
         header = int('0101010101010101', 2)
         max_seq_num = self.window.get_max_seq_num()
-        #cs = pack('IHH' + str(len(payload)) + 's', seq_num, max_seq_num, header, payload)
-        # jsingh
         checksum = computeChecksum(payload)
         
         # Inject corruption
@@ -254,13 +252,6 @@ class RequestHandler(Thread):
             if self.window.get_ws() == self.window.get_max_ws():
                 continue
 
-            # check for retransmission
-            #if self.window.need_retransmission():
-            #    print_log("retransmit")
-            #    next_expected_pkt = self.window.get_expected_ack()
-            #    self.resend_pkts(next_expected_pkt)
-            #    continue
-
             if self.pkt_bucket.get_size() < self.window.get_next_pkt():
                 continue
 
@@ -268,7 +259,6 @@ class RequestHandler(Thread):
             if curr_pkt is None:
                 continue
 
-            #seq_num = next_pkt % self.window.get_max_ws()
             seq_num = curr_pkt.get_seq_num()
 
             #Sending Sn; Timer started
@@ -307,7 +297,6 @@ class ResponseHandler(Thread):
             # Add timer to make sure client get back Ack with in a time T.
             data = select.select([self.sock], [], [], self.timeout)
             if not data[0]:
-                #print_log("handling timeout")
                 self.handle_timeout()
                 continue
 
@@ -342,15 +331,14 @@ class ResponseHandler(Thread):
 
 class Client:
 
-    def __init__(self, filename, port, nPkts, seq_num_bits, timeout):
+    def __init__(self, filename, port, nPkts, seq_num_bits, timeout, segSize):
         self.filename = filename
         self.port = int(port)
         self.nPkts = nPkts
         self.sock = None
-        self.request_handler = None
-        self.response_handler = None
         self.window = Window(seq_num_bits)
         self.timeout = timeout
+        self.max_seg = segSize
 
     def connect(self):
         # handle exception
@@ -365,11 +353,11 @@ class Client:
 
     def send(self):
 
-        self.request_handler = RequestHandler(self.sock, self.port, self.nPkts, 80, self.window)
-        self.response_handler = ResponseHandler(self.sock, self.nPkts, self.timeout, self.window)
+        request_handler = RequestHandler(self.sock, self.port, self.nPkts, self.max_seg, self.window)
+        response_handler = ResponseHandler(self.sock, self.nPkts, self.timeout, self.window)
 
-        self.request_handler.start()
-        self.response_handler.start()
+        request_handler.start()
+        response_handler.start()
 
     def close(self):
 
@@ -447,6 +435,6 @@ if __name__ == "__main__":
     print_log("Timeout Value : " + str(timeout))
     print_log("Segment size : " + str(segSize))
 
-    client = Client(filename, int(port_num), int(nPkts), int(seqNumBits), int(timeout))
+    client = Client(filename, int(port_num), int(nPkts), int(seqNumBits), int(timeout), int(segSize))
     if client.connect():
         client.send()
