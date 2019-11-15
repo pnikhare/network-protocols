@@ -8,6 +8,11 @@ import math
 import signal
 from struct import unpack
 from struct import pack
+
+import os.path
+common_dir = (os.path.abspath(os.path.join(os.path.dirname(__file__), '..')) + '/common/')
+sys.path.append(common_dir)
+
 from checksum import isMsgCorrupted
 from packet import Packet
 from error import inject_error

@@ -13,12 +13,16 @@ from threading import Lock
 import math
 import select
 from collections import OrderedDict
+
+import os.path
+common_dir = (os.path.abspath(os.path.join(os.path.dirname(__file__), '..')) + '/common/')
+sys.path.append(common_dir)
+
 from checksum import computeChecksum
 from log import print_log
 from packet import Packet
 from error import inject_error
-
-perform_corruption = False
+from input_parser import InputParser
 
 ACK_LOSS_PROBABILITY = 0.01
 BIT_ERROR_PROBABILITY = 0.05
@@ -363,53 +367,6 @@ class Client:
 
         self.sock.close()
 
-class InputParser:
-
-    def __init__(self, filename, port, nPkts):
-        self.filename = filename
-        self.port = port
-        self.nPkts = nPkts
-
-    def validateInputArgs(self):
-
-        # validate file path
-        if not os.path.exists(self.filename):
-            print_log ("Mentioned file path is wrong")
-            return False
-
-        # Validate entered port number
-        if not self.port.isdigit():
-            print_log ("Please enter a valid port number")
-            return False
-
-        if not self.nPkts.isdigit():
-            if self.nPkts <= 0:
-                print_log ("Please provide the correct value for number of packets. It should be greater than 0.")
-                return False
-
-        return True
-
-    def parse_input(self):
-
-        prot_name  = None
-        seqNumBits = None
-        windowSize = None
-        timeout    = None
-        segSize    = None
-
-        with open(self.filename, 'r') as fd:
-            try:
-                prot_name  = fd.readline().strip()
-                secondLine = fd.readline().strip().split(' ')
-                seqNumBits = int(secondLine[0])
-                windowSize = int(secondLine[1])
-                timeout    = int(fd.readline().strip())
-                segSize    = int(fd.readline().strip())
-            except IOError:
-                print_log("Insufficient file content. Please correct the file content or format.")
-
-        return prot_name, seqNumBits, windowSize, timeout, segSize
-
 if __name__ == "__main__":
 
     if len(sys.argv) != 4:
@@ -429,11 +386,14 @@ if __name__ == "__main__":
 
     prot_name, seqNumBits, windowSize, timeout, segSize = parser.parse_input();
 
+    print_log("############### INFO ##################")
     print_log("Protocol Name : " + str(prot_name))
     print_log("Sequence of bits : " + str(seqNumBits))
     print_log("Window Size : " + str(windowSize))
     print_log("Timeout Value : " + str(timeout))
     print_log("Segment size : " + str(segSize))
+    print_log("#######################################")
+    print_log("")
 
     client = Client(filename, int(port_num), int(nPkts), int(seqNumBits), int(timeout), int(segSize))
     if client.connect():
