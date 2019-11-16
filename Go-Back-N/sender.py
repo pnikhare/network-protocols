@@ -209,13 +209,13 @@ class RequestHandler(Thread):
         self.pkt_bucket = pkt_bucket
         self.window = window
 
-    def format_pkt(self, seq_num, payload):
+    def format_pkt(self, seq_num, payload, pkt_num):
         header = int('0101010101010101', 2)
         max_seq_num = self.window.get_max_seq_num()
         checksum = computeChecksum(payload)
         
         # Inject corruption
-        if inject_error(BIT_ERROR_PROBABILITY):
+        if pkt_num is not 0 and inject_error(BIT_ERROR_PROBABILITY):
             print_log("Injecting bit error for segment " + str(seq_num))
             checksum = 0
         
@@ -233,7 +233,7 @@ class RequestHandler(Thread):
             seq_num = pkt.get_seq_num()
 
             print_log("Timer expired; Resending " + str(seq_num) + "; Timer started")
-            final_pkt = self.format_pkt(seq_num, pkt.get_payload())
+            final_pkt = self.format_pkt(seq_num, pkt.get_payload(), self.window.get_next_pkt())
             self.sock.sendto(final_pkt, ("127.0.0.1", self.port))
 
             pkt_num = pkt_num + 1
@@ -264,7 +264,7 @@ class RequestHandler(Thread):
 
             #Sending Sn; Timer started
             print_log("Sending " + str(seq_num) + "; Timer started")
-            final_pkt = self.format_pkt(seq_num, curr_pkt.get_payload())
+            final_pkt = self.format_pkt(seq_num, curr_pkt.get_payload(), self.window.get_next_pkt())
             self.sock.sendto(final_pkt, ("127.0.0.1", self.port))
 
             self.window.reduceWindow(seq_num)

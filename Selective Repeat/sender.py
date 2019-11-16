@@ -258,8 +258,6 @@ class Timer(Thread):
     def format_pkt(self, seq_num, payload):
         header = int('0101010101010101', 2)
         max_seq_num = self.window.get_max_seq_num()
-        #cs = pack('IHH' + str(len(payload)) + 's', seq_num, max_seq_num, header, payload)
-        # jsingh
         checksum = computeChecksum(payload)
 
         return pack('IHHH' + str(len(payload)) + 's', seq_num, checksum, max_seq_num, header, payload)
@@ -297,7 +295,7 @@ class Timer(Thread):
 
                 if timeLapsed > self.timeout:
 
-                    print_log("Resending the segment " + str(packet.get_seq_num()))
+                    print_log("Timer expired; Resending the segment " + str(packet.get_seq_num()) + "; Timer started.")
                     # resend the pkt
                     final_pkt = self.format_pkt(packet.get_seq_num(), packet.get_payload())
                     self.sock.sendto(final_pkt, ("127.0.0.1", self.port))
@@ -320,15 +318,13 @@ class RequestHandler(Thread):
         self.timeout = timeout
         self.window = window
 
-    def format_pkt(self, seq_num, payload):
+    def format_pkt(self, seq_num, payload, pkt_num):
         header = int('0101010101010101', 2)
         max_seq_num = self.window.get_max_seq_num()
-        #cs = pack('IHH' + str(len(payload)) + 's', seq_num, max_seq_num, header, payload)
-        # jsingh
         checksum = computeChecksum(payload)
 
         # Inject corruption
-        if inject_error(BIT_ERROR_PROBABILITY):
+        if pkt_num is not 0 and inject_error(BIT_ERROR_PROBABILITY):
             print_log("Injecting bit error for segment " + str(seq_num))
             checksum = 0
 
@@ -346,7 +342,7 @@ class RequestHandler(Thread):
             seq_num = pkt.get_seq_num()
 
             print_log("Timer expired; Resending " + str(seq_num) + "; Timer started")
-            final_pkt = self.format_pkt(seq_num, pkt.get_payload())
+            final_pkt = self.format_pkt(seq_num, pkt.get_payload(), self.window.get_next_pkt())
             self.sock.sendto(final_pkt, ("127.0.0.1", self.port))
 
             pkt_num = pkt_num + 1
@@ -369,13 +365,6 @@ class RequestHandler(Thread):
             if self.window.get_ws() == self.window.get_max_ws():
                 continue
 
-            # check for retransmission
-            #if self.window.need_retransmission():
-            #    print_log("retransmit")
-            #    next_expected_pkt = self.window.get_expected_ack()
-            #    self.resend_pkts(next_expected_pkt)
-            #    continue
-
             if self.pkt_bucket.get_size() < self.window.get_next_pkt():
                 continue
 
@@ -385,21 +374,15 @@ class RequestHandler(Thread):
 
             self.window.reduceWindow(curr_pkt)
 
-            #time = time.time()
             curr_pkt.start_timer(time.time())
-
-            #print("next pkt : " + str(self.window.get_next_pkt()))
 
             print_log("Sending " + str(curr_pkt.get_seq_num()) + "; Timer started")
 
             # send the pkt
-            final_pkt = self.format_pkt(curr_pkt.get_seq_num(), curr_pkt.get_payload())
+            final_pkt = self.format_pkt(curr_pkt.get_seq_num(), curr_pkt.get_payload(), self.window.get_next_pkt())
             self.sock.sendto(final_pkt, ("127.0.0.1", self.port))
 
             timer.enqueue_pkt(curr_pkt)
-            #self.window.stop(curr_pkt.get_seq_num())
-            #timer = Timer(self.sock, self.port, self.window, self.timeout, self.nPkts)
-            #timer.start()
 
         timer.shutdown_flag.set()
 
