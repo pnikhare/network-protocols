@@ -13,43 +13,43 @@ https://www.python.org/downloads/release/python-2712/
 To start the Receiver, please run the following command 
 
 ```
-python Go-Back-N/receiver.py 16000
+python Go-Back-N/receiver.py <port no.>
 ```
 
 To start the sender, please run the following commands
 
 ```
-python Go-Back-N/sender.py Go-Back-N/inputfile 16000 100
+python Go-Back-N/sender.py Go-Back-N/inputfile <port no.> <no. of pkts>
 ```
 
 ### Selective Repeat
 
 ```
-python Selective\ Repeat/receiver.py 16000
+python Selective\ Repeat/receiver.py <port no.>
 ```
 
 To start the sender, please run the following commands
 
 ```
-python Selective\ Repeat/sender.py Selective\ Repeat/inputfile 16000 100
+python Selective\ Repeat/sender.py Selective\ Repeat/inputfile <port no.> <no. of pkts>
 ```
 
-Where inputfile should be in following format:
+The inputfile should be in following format:
 
+```
 GBN
 4 15
 10000000
 500
+```
 
-GBN / SR - Protocol name
+Where:
+
+GBN/SR - Protocol name
 4 - Bits used for Sequnce number
 15 - Window size
 10000000 - timer in milliseconds
 500 - max segment size
-
-Argument 2 : 16000 - port number
-Argument 3 : 100 - Number of packets to send
-
 
 
 
