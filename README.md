@@ -45,11 +45,11 @@ GBN
 
 Where:
 
-GBN/SR - Protocol name\
-4 - Bits used for Sequnce number\
-15 - Window size\
-10000000 - timer in milliseconds\
-500 - max segment size\
+GBN/SR - Protocol Name\
+4 - Bits used for Sequnce Number\
+15 - Window Size\
+10000000 - Timer in milliseconds\
+500 - Max Segment Size
 
 
 
