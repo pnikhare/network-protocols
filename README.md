@@ -25,16 +25,17 @@ python Go-Back-N/sender.py Go-Back-N/inputfile 16000 100
 ### Selective Repeat
 
 ```
-python Selective Repeat/receiver.py 16000
+python Selective\ Repeat/receiver.py 16000
 ```
 
 To start the sender, please run the following commands
 
 ```
-python Selective Repeat/sender.py Selective Repeat/inputfile 16000 100
+python Selective\ Repeat/sender.py Selective\ Repeat/inputfile 16000 100
 ```
 
-Where inputfile should be in following format :
+Where inputfile should be in following format:
+
 GBN
 4 15
 10000000
