@@ -154,7 +154,7 @@ class Receiver:
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             self.sock.bind(("127.0.0.1", self.port))
         except Exception as e:
-            print_log("Falied to create the UDP socket")
+            print("Falied to create the UDP socket")
             return False
 
         return True

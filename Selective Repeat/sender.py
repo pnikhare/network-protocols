@@ -311,12 +311,12 @@ class Timer(Thread):
 
 class RequestHandler(Thread):
 
-    def __init__(self, sock, port, nPkts, timeout, mss, window):
+    def __init__(self, sock, port, window, pkt_bucket):
         Thread.__init__(self)
         self.shutdown_flag = Event()
         self.sock = sock
         self.port = port
-        self.pkt_bucket = PacketBucket(nPkts, mss, window.get_max_seq_num())
+        self.pkt_bucket = pkt_bucket
         self.timeout = timeout
         self.window = window
 
@@ -355,9 +355,6 @@ class RequestHandler(Thread):
         self.window.reset_retransmission()
 
     def send_pkts(self):
-
-        # Generate packets
-        self.pkt_bucket.create_pkts()
 
         timer = Timer(self.sock, self.port, self.window, self.timeout, self.pkt_bucket.get_size())
         timer.start()
@@ -471,6 +468,7 @@ class Sender:
         self.nPkts = nPkts
         self.sock = None
         self.window = Window(seq_num_bits)
+        self.pkt_bucket = PacketBucket(nPkts, segSize, self.window.get_max_seq_num())
         self.timeout = timeout
         self.max_seg = segSize
 
@@ -488,8 +486,12 @@ class Sender:
     def send(self):
 
         try:
-            request_handler = RequestHandler(self.sock, self.port, self.nPkts, self.timeout, self.max_seg, self.window)
+            request_handler = RequestHandler(self.sock, self.port, self.window, self.pkt_bucket)
             response_handler = ResponseHandler(self.sock, self.nPkts, self.timeout, self.window)
+
+            print_log("Generating packets. \nNote: This step may take little more time based on the segment size & no. of pkts which needs to be generated.")
+            self.pkt_bucket.create_pkts()
+            print_log("\nFinished generating packets\n")
 
             request_handler.start()
             response_handler.start()
